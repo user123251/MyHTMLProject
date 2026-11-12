@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SmartFood | Observer, Strategy & Command Patterns</title>
+<style>
+:root{font-family:Arial,sans-serif;color:#172033;background:#f5f7fb}*{box-sizing:border-box}body{margin:0}.top{background:#e94b35;color:white;padding:20px 5%}.top h1{margin:0 0 5px}.top p{margin:0;opacity:.95}.wrap{max-width:1150px;margin:22px auto;padding:0 16px;display:grid;grid-template-columns:1.3fr 1fr;gap:18px}.panel{background:white;border-radius:14px;padding:20px;box-shadow:0 2px 14px #19253b12;margin-bottom:18px}h2{font-size:20px;margin:0 0 14px}h3{font-size:16px}label{display:block;margin:12px 0 6px;font-weight:600}select,input{width:100%;padding:11px;border:1px solid #cbd5e1;border-radius:8px;font:inherit}.menu-row,.cart-row,.line{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #edf0f5}.menu-row strong{display:block}.muted{color:#64748b;font-size:13px;margin-top:4px}.price{font-weight:700}button{border:0;border-radius:8px;background:#e94b35;color:white;padding:10px 14px;cursor:pointer;font-weight:600}button:hover{filter:brightness(.95)}button:disabled{background:#cbd5e1;cursor:not-allowed}.secondary{background:#334155}.outline{background:white;color:#b62c20;border:1px solid #e94b35}.small{padding:7px 11px}.actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}.total{font-size:19px;font-weight:700}.log{height:220px;overflow:auto;background:#101b2b;color:#d6e4f1;padding:12px;border-radius:8px;font:12px/1.7 Consolas,monospace}.entry{padding:4px 0;border-bottom:1px solid #ffffff19}.pill{display:inline-block;background:#e7f6ed;color:#167344;padding:4px 9px;border-radius:999px;font-size:12px}.notice{padding:11px;background:#eff6ff;border-radius:8px;margin:9px 0;font-size:13px}.error{color:#b91c1c}.success{color:#15803d}.empty{color:#64748b;font-style:italic}.gridtwo{display:grid;grid-template-columns:1fr 1fr;gap:12px}.pattern{font-size:12px;background:#f1f5f9;border-radius:6px;padding:4px 8px;margin-left:6px}@media(max-width:800px){.wrap{grid-template-columns:1fr}.gridtwo{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header class="top"><h1>🍽️ SmartFood Delivery</h1><p>Interactive demonstration of Observer, Strategy and Command design patterns</p></header>
+<main class="wrap">
+<section>
+ <div class="panel"><h2>1. Choose Restaurant & Food</h2><label for="restaurant">Restaurant</label><select id="restaurant"></select><div id="menu"></div></div>
+ <div class="panel"><h2>2. Delivery Options <span class="pattern">Strategy</span></h2><label for="delivery">Delivery strategy</label><select id="delivery"><option value="standard">Standard Delivery — ₹40</option><option value="express">Express Delivery — ₹90</option><option value="free">Free Delivery Coupon — ₹0</option></select><div class="notice" id="strategyInfo"></div></div>
+ <div class="panel"><h2>3. Delivery Agents <span class="pattern">Observer</span></h2><p class="muted">Agents subscribe to restaurant order notifications. Toggle subscriptions before placing an order.</p><div id="agents"></div><h3>Agent notifications</h3><div id="notifications" class="notice">No notifications yet.</div></div>
+</section>
+<section>
+ <div class="panel"><h2>Your Cart</h2><label for="customer">Customer name</label><input id="customer" placeholder="e.g., Ananya" maxlength="60"><div id="cart"></div><div class="line"><span>Food subtotal</span><strong id="subtotal">₹0</strong></div><div class="line"><span>Delivery fee</span><strong id="fee">₹40</strong></div><div class="line total"><span>Total</span><span id="total">₹40</span></div><div class="actions"><button id="place">Place Order</button><button class="outline" id="clear">Clear Cart</button></div><p class="muted">Place Order is executed through a PlaceOrderCommand object.</p></div>
+ <div class="panel"><h2>Order Management <span class="pattern">Command</span></h2><label for="orderSelect">Select order</label><select id="orderSelect"></select><div id="orderDetails" class="notice">No orders placed yet.</div><div class="actions"><button class="secondary" id="track">Track Order</button><button class="outline" id="cancel">Cancel Order</button><button class="secondary" id="advance">Advance Delivery Status (Demo)</button></div><div id="commandResult" class="notice" role="status">Actions are executed using command objects.</div></div>
+ <div class="panel"><h2>Pattern Execution Log</h2><div class="log" id="log" aria-live="polite"></div><div class="actions"><button class="secondary small" id="verify">Verify Strategy Switching</button><button class="outline small" id="clearLog">Clear Log</button></div></div>
+</section>
+</main>
+<script>
+'use strict';
+// ================================================================
+// DEMO DATA: Restaurant menus and delivery agents
+// ================================================================
+const restaurantData = [
+ {id:'r1',name:'Spice Garden',menu:[{id:'m1',name:'Veg Biryani',price:180},{id:'m2',name:'Paneer Butter Masala',price:220},{id:'m3',name:'Butter Naan',price:50}]},
+ {id:'r2',name:'Pizza Corner',menu:[{id:'m4',name:'Margherita Pizza',price:260},{id:'m5',name:'Farmhouse Pizza',price:340},{id:'m6',name:'Garlic Bread',price:120}]},
+ {id:'r3',name:'South Tiffins',menu:[{id:'m7',name:'Masala Dosa',price:110},{id:'m8',name:'Idli Sambar',price:80},{id:'m9',name:'Filter Coffee',price:45}]}
+];
+const money = n => '₹' + n.toLocaleString('en-IN');
+const $ = id => document.getElementById(id);
+function log(pattern,message){
+ const item=document.createElement('div');item.className='entry';item.textContent=`[${new Date().toLocaleTimeString()}] [${pattern}] ${message}`;
+ $('log').prepend(item);
+}
+// ================================================================
+// OBSERVER PATTERN
+// Observer interface: every agent implements update(order, restaurant).
+// Subject: Restaurant maintains subscribers and notifies them.
+// ================================================================
+class DeliveryAgent {
+ constructor(id,name){this.id=id;this.name=name;this.notifications=[];}
+ // Called automatically when a subscribed restaurant places an order.
+ update(order,restaurant){
+  const message=`${this.name}: New order #${order.id} at ${restaurant.name} for ${order.customer}`;
+  this.notifications.push(message);
+  log('OBSERVER',message);
+  renderNotifications();
+ }
+}
+class Restaurant {
+ constructor(id,name,menu){this.id=id;this.name=name;this.menu=menu;this.observers=new Set();}
+ subscribe(agent){this.observers.add(agent);log('OBSERVER',`${agent.name} subscribed to ${this.name}`);}
+ unsubscribe(agent){this.observers.delete(agent);log('OBSERVER',`${agent.name} unsubscribed from ${this.name}`);}
+ notify(order){for(const agent of this.observers)agent.update(order,this);}
+}
+const restaurants=restaurantData.map(r=>new Restaurant(r.id,r.name,r.menu));
+const agents=[new DeliveryAgent('a1','Ravi'),new DeliveryAgent('a2','Priya'),new DeliveryAgent('a3','Arjun')];
+// Initially subscribe all agents to all restaurants for easy demonstration.
+restaurants.forEach(r=>agents.forEach(a=>r.observers.add(a)));
+// ================================================================
+// STRATEGY PATTERN
+// Each strategy implements calculate(subtotal). The context delegates
+// the fee calculation to the selected strategy at runtime.
+// ================================================================
+class StandardDelivery {calculate(subtotal){return 40;} description(){return 'Standard delivery: flat ₹40 fee.';}}
+class ExpressDelivery {calculate(subtotal){return 90;} description(){return 'Express delivery: priority service for ₹90.';}}
+class FreeDelivery {calculate(subtotal){return 0;} description(){return 'Demo coupon applied: delivery fee waived.';}}
+class DeliveryFeeContext {
+ constructor(strategy){this.strategy=strategy;}
+ setStrategy(strategy){this.strategy=strategy;log('STRATEGY',`Selected ${strategy.constructor.name}`);}
+ calculateFee(subtotal){return this.strategy.calculate(subtotal);}
+}
+const strategies={standard:new StandardDelivery(),express:new ExpressDelivery(),free:new FreeDelivery()};
+const deliveryContext=new DeliveryFeeContext(strategies.standard);
+// ================================================================
+// APPLICATION SERVICE: Receives commands and manages orders.
+// This is separate from the command objects.
+// ================================================================
+class OrderService {
+ constructor(){this.orders=[];this.nextId=1001;}
+ placeOrder(details){
+  const order={...details,id:this.nextId++,status:'Placed',createdAt:new Date().toLocaleString()};
+  this.orders.push(order);
+  order.restaurant.notify(order); // OBSERVER: broadcast the new order
+  log('SERVICE',`Order #${order.id} placed; total ${money(order.total)}`);
+  return `Order #${order.id} placed successfully!`;
+ }
+ cancelOrder(id){
+  const order=this.orders.find(o=>o.id===id);
+  if(!order)return 'Order not found.';
+  if(order.status==='Cancelled')return `Order #${id} is already cancelled.`;
+  if(order.status==='Delivered')return 'Delivered orders cannot be cancelled.';
+  order.status='Cancelled';log('SERVICE',`Order #${id} cancelled`);
+  return `Order #${id} cancelled successfully.`;
+ }
+ trackOrder(id){
+  const order=this.orders.find(o=>o.id===id);
+  return order?`Order #${id}: ${order.status}`:'Order not found.';
+ }
+ advanceOrder(id){
+  const order=this.orders.find(o=>o.id===id);
+  if(!order)return 'Order not found.';
+  const steps=['Placed','Preparing','Out for Delivery','Delivered'];
+  const idx=steps.indexOf(order.status);
+  if(idx<0)return 'Cancelled orders cannot advance.';
+  if(idx===steps.length-1)return 'Order already delivered.';
+  order.status=steps[idx+1];log('SERVICE',`Order #${id} advanced to ${order.status}`);
+  return `Order #${id}: ${order.status}`;
+ }
+}
+// ================================================================
+// COMMAND PATTERN
+// Each command encapsulates one request and implements execute().
+// CommandInvoker executes commands without knowing their internals.
+// ================================================================
+class PlaceOrderCommand {
+ constructor(service,details){this.service=service;this.details=details;}
+ execute(){return this.service.placeOrder(this.details);}
+}
+class CancelOrderCommand {
+ constructor(service,id){this.service=service;this.id=id;}
+ execute(){return this.service.cancelOrder(this.id);}
+}
+class TrackOrderCommand {
+ constructor(service,id){this.service=service;this.id=id;}
+ execute(){return this.service.trackOrder(this.id);}
+}
+class CommandInvoker {
+ execute(command){log('COMMAND',`Executing ${command.constructor.name}`);return command.execute();}
+}
+const service=new OrderService();
+const invoker=new CommandInvoker();
+// ================================================================
+// UI: Connect HTML controls to the design pattern objects.
+// ================================================================
+let cart=[];
+let activeRestaurant=restaurants[0];
+function renderRestaurantOptions(){
+ restaurants.forEach(r=>{const option=document.createElement('option');option.value=r.id;option.textContent=r.name;$('restaurant').append(option);});
+}
+function renderMenu(){
+ $('menu').replaceChildren();
+ activeRestaurant.menu.forEach(item=>{
+  const row=document.createElement('div');row.className='menu-row';
+  const info=document.createElement('div');
+  const name=document.createElement('strong');name.textContent=item.name;
+  const price=document.createElement('div');price.className='muted';price.textContent=money(item.price);
+  info.append(name,price);
+  const button=document.createElement('button');button.className='small';button.textContent='+ Add';
+  button.addEventListener('click',()=>{const existing=cart.find(i=>i.id===item.id);if(existing)existing.qty++;else cart.push({...item,qty:1});renderCart();});
+  row.append(info,button);$('menu').append(row);
+ });
+}
+function subtotal(){return cart.reduce((sum,item)=>sum+item.price*item.qty,0);}
+function renderCart(){
+ $('cart').replaceChildren();
+ if(cart.length===0){const p=document.createElement('p');p.className='empty';p.textContent='Your cart is empty. Add some food!';$('cart').append(p);}
+ cart.forEach(item=>{
+  const row=document.createElement('div');row.className='cart-row';
+  const text=document.createElement('span');text.textContent=`${item.name} × ${item.qty} — ${money(item.price*item.qty)}`;
+  const remove=document.createElement('button');remove.className='small outline';remove.textContent='−';remove.title='Remove one';
+  remove.addEventListener('click',()=>{item.qty--;if(item.qty===0)cart=cart.filter(i=>i!==item);renderCart();});
+  row.append(text,remove);$('cart').append(row);
+ });
+ const sub=subtotal(),fee=deliveryContext.calculateFee(sub);
+ $('subtotal').textContent=money(sub);$('fee').textContent=money(fee);$('total').textContent=money(sub+fee);
+ $('strategyInfo').textContent=deliveryContext.strategy.description();
+}
+function renderAgents(){
+ $('agents').replaceChildren();
+ agents.forEach(agent=>{
+  const label=document.createElement('label');label.style.fontWeight='normal';
+  const check=document.createElement('input');check.type='checkbox';check.style.width='auto';check.style.marginRight='8px';check.checked=activeRestaurant.observers.has(agent);
+  check.addEventListener('change',()=>{if(check.checked)activeRestaurant.subscribe(agent);else activeRestaurant.unsubscribe(agent);});
+  label.append(check,document.createTextNode(agent.name+' — subscribe to '+activeRestaurant.name));$('agents').append(label);
+ });
+}
+function renderNotifications(){
+ const all=agents.flatMap(a=>a.notifications.map(message=>({message}))).slice(-10).reverse();
+ $('notifications').replaceChildren();
+ if(!all.length){$('notifications').textContent='No notifications yet.';return;}
+ all.forEach(n=>{const div=document.createElement('div');div.textContent='🔔 '+n.message;div.style.marginBottom='7px';$('notifications').append(div);});
+}
+function selectedOrderId(){return Number($('orderSelect').value);}
+function renderOrders(){
+ const previous=$('orderSelect').value;
+ $('orderSelect').replaceChildren();
+ if(!service.orders.length){const option=document.createElement('option');option.textContent='No orders';option.value='';$('orderSelect').append(option);}
+ service.orders.forEach(o=>{const option=document.createElement('option');option.value=o.id;option.textContent=`#${o.id} — ${o.restaurant.name} (${o.status})`;$('orderSelect').append(option);});
+ if(service.orders.some(o=>String(o.id)===previous))$('orderSelect').value=previous;
+ else if(service.orders.length)$('orderSelect').value=String(service.orders[service.orders.length-1].id);
+ renderOrderDetails();
+}
+function renderOrderDetails(){
+ const order=service.orders.find(o=>o.id===selectedOrderId());
+ if(!order){$('orderDetails').textContent='No orders placed yet.';return;}
+ $('orderDetails').textContent=`Customer: ${order.customer} | Restaurant: ${order.restaurant.name} | Items: ${order.items.map(i=>i.name+' × '+i.qty).join(', ')} | Delivery: ${order.deliveryType} | Total: ${money(order.total)} | Status: ${order.status}`;
+}
+function result(message){$('commandResult').textContent=message;}
+$('restaurant').addEventListener('change',()=>{
+ activeRestaurant=restaurants.find(r=>r.id===$('restaurant').value);
+ cart=[];renderMenu();renderCart();renderAgents();
+ log('UI',`Restaurant changed to ${activeRestaurant.name}; cart cleared`);
+});
+$('delivery').addEventListener('change',()=>{deliveryContext.setStrategy(strategies[$('delivery').value]);renderCart();});
+$('clear').addEventListener('click',()=>{cart=[];renderCart();});
+$('place').addEventListener('click',()=>{
+ const customer=$('customer').value.trim();
+ if(!customer){result('Please enter a customer name.');return;}
+ if(cart.length===0){result('Please add at least one food item.');return;}
+ const sub=subtotal(),fee=deliveryContext.calculateFee(sub);
+ // Snapshot the current cart and delivery strategy so later changes do not affect the order.
+ const details={customer,restaurant:activeRestaurant,items:cart.map(i=>({...i})),subtotal:sub,fee,total:sub+fee,deliveryType:deliveryContext.strategy.constructor.name};
+ const command=new PlaceOrderCommand(service,details);
+ result(invoker.execute(command)); // COMMAND -> SERVICE -> OBSERVER
+ cart=[];renderCart();renderOrders();
+});
+$('track').addEventListener('click',()=>{if(!service.orders.length)return result('Place an order first.');result(invoker.execute(new TrackOrderCommand(service,selectedOrderId())));renderOrderDetails();});
+$('cancel').addEventListener('click',()=>{if(!service.orders.length)return result('Place an order first.');result(invoker.execute(new CancelOrderCommand(service,selectedOrderId())));renderOrders();});
+$('advance').addEventListener('click',()=>{if(!service.orders.length)return result('Place an order first.');result(service.advanceOrder(selectedOrderId()));renderOrders();});
+$('orderSelect').addEventListener('change',renderOrderDetails);
+$('verify').addEventListener('click',()=>{for(const [name,strategy] of Object.entries(strategies))log('STRATEGY',`${name}: subtotal ₹300 -> delivery ${money(strategy.calculate(300))}`);result('Strategy calculation results displayed in the execution log.');});
+$('clearLog').addEventListener('click',()=>{$('log').replaceChildren();});
+// Initialize the user interface.
+renderRestaurantOptions();renderMenu();renderAgents();renderCart();renderOrders();
+log('SYSTEM','SmartFood ready. Three behavioral design patterns loaded.');
+</script>
+</body>
+</html>
